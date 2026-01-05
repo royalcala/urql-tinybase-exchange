@@ -1,7 +1,7 @@
 import { Exchange } from "urql";
-import { pipe, tap } from "wonka";
+import { pipe, tap, map } from "wonka";
 import { Store } from "tinybase";
-import { OperationDefinitionNode } from "graphql";
+import { OperationDefinitionNode, visit } from "graphql";
 
 export interface TinyBaseExchangeConfig {
   store: Store;
@@ -14,16 +14,43 @@ export const tinyBaseExchange = ({
     (ops$) => {
       return pipe(
         ops$,
+        map((operation) => {
+          // Store the original query to process directives later
+          const originalQuery = operation.query;
+
+          // Strip @dbMergeRow and @dbDeleteRow directives from the query before sending to server
+          const cleanedQuery = visit(operation.query, {
+            Directive(node) {
+              if (
+                node.name.value === "dbMergeRow" ||
+                node.name.value === "dbDeleteRow"
+              ) {
+                return null; // Remove the directive
+              }
+            },
+          });
+
+          return {
+            ...operation,
+            query: cleanedQuery,
+            context: {
+              ...operation.context,
+              // Store original query in context so we can access it in the response
+              __originalQuery: originalQuery,
+            },
+          };
+        }),
         forward,
         tap((result) => {
           if (!result.data) return;
 
           const { operation } = result;
-          const { query } = operation;
+          // Use the original query (with directives) to process the response
+          const query = operation.context.__originalQuery || operation.query;
 
           // Collect fragments
           const fragments: Record<string, any> = {};
-          query.definitions.forEach((d) => {
+          query.definitions.forEach((d: any) => {
             if (d.kind === "FragmentDefinition") {
               fragments[d.name.value] = d;
             }
@@ -135,7 +162,7 @@ export const tinyBaseExchange = ({
 
           // We need to find the main operation definition
           const operationDef = query.definitions.find(
-            (d) => d.kind === "OperationDefinition"
+            (d: any) => d.kind === "OperationDefinition"
           ) as OperationDefinitionNode;
           if (operationDef) {
             processData(result.data, operationDef.selectionSet);

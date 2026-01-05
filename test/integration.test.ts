@@ -694,4 +694,66 @@ describe("tinyBaseExchange", () => {
       name: "Author 100",
     });
   });
+
+  it("should strip @dbMergeRow and @dbDeleteRow directives from queries sent to server", async () => {
+    let sentQuery: string | undefined;
+
+    // Create a special client that captures the query sent to the server
+    const captureClient = createClient({
+      url: "http://localhost:4000/graphql",
+      exchanges: [tinyBaseExchange({ store }), fetchExchange],
+      fetch: async (_input: any, init: any) => {
+        const body = JSON.parse(init.body);
+        sentQuery = body.query;
+
+        // Mock response
+        const result = await execute({
+          schema,
+          document: parse(body.query),
+          rootValue,
+          variableValues: body.variables,
+        });
+
+        return {
+          ok: true,
+          status: 200,
+          headers: {
+            get: (key: string) =>
+              key === "Content-Type" ? "application/json" : null,
+          },
+          json: async () => ({ data: result.data, errors: result.errors }),
+          text: async () =>
+            JSON.stringify({ data: result.data, errors: result.errors }),
+        } as any;
+      },
+    });
+
+    const mutation = gql`
+      mutation {
+        createUser(id: "strip-test", name: "Test User")
+          @dbMergeRow(table: "users") {
+          id
+          name
+        }
+        deleteUser(id: "old-user") {
+          id @dbDeleteRow(table: "users")
+        }
+      }
+    `;
+
+    await captureClient.mutation(mutation, {}).toPromise();
+
+    // Verify directives were stripped from the query sent to server
+    expect(sentQuery).toBeDefined();
+    expect(sentQuery).not.toContain("@dbMergeRow");
+    expect(sentQuery).not.toContain("@dbDeleteRow");
+    expect(sentQuery).toContain("createUser");
+    expect(sentQuery).toContain("deleteUser");
+
+    // Verify the exchange still processed the directives correctly
+    expect(store.getRow("users", "strip-test")).toEqual({
+      id: "strip-test",
+      name: "Test User",
+    });
+  });
 });
