@@ -20,18 +20,15 @@ npm install urql-tinybase-exchange urql tinybase graphql react
 ### 1. Setup the Client
 
 ```typescript
-import { createClient, fetchExchange } from 'urql';
-import { createStore } from 'tinybase';
-import { tinyBaseExchange } from 'urql-tinybase-exchange';
+import { createClient, fetchExchange } from "urql";
+import { createStore } from "tinybase";
+import { tinyBaseExchange } from "urql-tinybase-exchange";
 
 const store = createStore();
 
 const client = createClient({
-  url: 'http://localhost:4000/graphql',
-  exchanges: [
-    tinyBaseExchange({ store }),
-    fetchExchange,
-  ],
+  url: "http://localhost:4000/graphql",
+  exchanges: [tinyBaseExchange({ store }), fetchExchange],
 });
 ```
 
@@ -54,37 +51,37 @@ This will automatically do `store.setRow('users', '1', { id: '1', name: 'Alice' 
 
 ```graphql
 mutation DeleteUser {
-  deleteUser(id: "1") @dbDeleteRow(table: "users")
+  deleteUser(id: "1") {
+    id @dbDeleteRow(table: "users")
+  }
 }
 ```
 
-This will automatically do `store.delRow('users', '1')`.
+This will automatically do `store.delRow('users', '1')`. The directive is applied to the `id` field which contains the row ID to delete.
 
 ### 3. React Integration
+
 To use TinyBase hooks like `useCell`, `useRow`, or `useQuery`, you must wrap your app with the `Provider` from `tinybase/ui-react` and pass the **same store instance** you used for the exchange.
 
 ```tsx
-import React from 'react';
-import { createClient, Provider as UrqlProvider, fetchExchange } from 'urql';
-import { createStore } from 'tinybase';
-import { Provider as TinyBaseProvider, useCell } from 'tinybase/ui-react';
-import { tinyBaseExchange } from 'urql-tinybase-exchange';
+import React from "react";
+import { createClient, Provider as UrqlProvider, fetchExchange } from "urql";
+import { createStore } from "tinybase";
+import { Provider as TinyBaseProvider, useCell } from "tinybase/ui-react";
+import { tinyBaseExchange } from "urql-tinybase-exchange";
 
 // 1. Create the store
 const store = createStore();
 
 // 2. Create the client with the exchange using the SAME store
 const client = createClient({
-  url: 'http://localhost:4000/graphql',
-  exchanges: [
-    tinyBaseExchange({ store }),
-    fetchExchange,
-  ],
+  url: "http://localhost:4000/graphql",
+  exchanges: [tinyBaseExchange({ store }), fetchExchange],
 });
 
 const UserProfile = ({ id }) => {
   // 4. Use standard TinyBase hooks
-  const name = useCell('users', id, 'name');
+  const name = useCell("users", id, "name");
   return <div>User: {name}</div>;
 };
 
@@ -101,12 +98,12 @@ export const App = () => (
 Since TinyBase is reactive, standard hooks will automatically trigger updates when the exchange modifies the store:
 
 ```tsx
-import { useCell } from 'tinybase/ui-react';
+import { useCell } from "tinybase/ui-react";
 
 const UserParams = ({ id }) => {
-  const name = useCell('users', id, 'name');
+  const name = useCell("users", id, "name");
   return <div>User: {name}</div>;
-}
+};
 ```
 
 ## License
