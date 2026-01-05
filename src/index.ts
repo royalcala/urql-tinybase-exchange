@@ -68,18 +68,47 @@ export const tinyBaseExchange = ({
               const tableArg = mergeDirective.arguments?.find(
                 (a: any) => a.name.value === "table"
               );
-              if (tableArg && tableArg.value.kind === "StringValue") {
-                const tableName = tableArg.value.value;
-                if (data && typeof data === "object") {
-                  if (Array.isArray(data)) {
-                    data.forEach((row) => {
-                      if (row.id) {
-                        store.setPartialRow(tableName, row.id, { ...row });
-                      }
-                    });
-                  } else if (data.id) {
-                    store.setPartialRow(tableName, data.id, { ...data });
-                  }
+
+              if (!tableArg) {
+                console.error(
+                  "[TinyBase Exchange] @dbMergeRow directive is missing required 'table' argument"
+                );
+                return;
+              }
+
+              // Support both StringValue and EnumValue for table name
+              let tableName: string;
+              if (tableArg.value.kind === "StringValue") {
+                tableName = tableArg.value.value;
+              } else if (tableArg.value.kind === "EnumValue") {
+                // Convert enum name to lowercase for table name (e.g., Post -> post)
+                tableName = tableArg.value.value.toLowerCase();
+              } else {
+                console.error(
+                  "[TinyBase Exchange] @dbMergeRow 'table' argument must be a string or enum. " +
+                    `Got: ${tableArg.value.kind}`
+                );
+                return;
+              }
+              if (data && typeof data === "object") {
+                if (Array.isArray(data)) {
+                  data.forEach((row) => {
+                    if (row.id) {
+                      store.setPartialRow(tableName, row.id, { ...row });
+                    } else {
+                      console.warn(
+                        `[TinyBase Exchange] Skipping row without 'id' field in table '${tableName}':`,
+                        row
+                      );
+                    }
+                  });
+                } else if (data.id) {
+                  store.setPartialRow(tableName, data.id, { ...data });
+                } else {
+                  console.warn(
+                    `[TinyBase Exchange] Cannot merge data without 'id' field into table '${tableName}':`,
+                    data
+                  );
                 }
               }
             }
@@ -92,16 +121,35 @@ export const tinyBaseExchange = ({
               const tableArg = deleteDirective.arguments?.find(
                 (a: any) => a.name.value === "table"
               );
-              if (tableArg && tableArg.value.kind === "StringValue") {
-                const tableName = tableArg.value.value;
-                if (data) {
-                  if (Array.isArray(data)) {
-                    data.forEach((id) => {
-                      store.delRow(tableName, String(id));
-                    });
-                  } else {
-                    store.delRow(tableName, String(data));
-                  }
+
+              if (!tableArg) {
+                console.error(
+                  "[TinyBase Exchange] @dbDeleteRow directive is missing required 'table' argument"
+                );
+                return;
+              }
+
+              // Support both StringValue and EnumValue for table name
+              let tableName: string;
+              if (tableArg.value.kind === "StringValue") {
+                tableName = tableArg.value.value;
+              } else if (tableArg.value.kind === "EnumValue") {
+                // Convert enum name to lowercase for table name (e.g., Post -> post)
+                tableName = tableArg.value.value.toLowerCase();
+              } else {
+                console.error(
+                  "[TinyBase Exchange] @dbDeleteRow 'table' argument must be a string or enum. " +
+                    `Got: ${tableArg.value.kind}`
+                );
+                return;
+              }
+              if (data) {
+                if (Array.isArray(data)) {
+                  data.forEach((id) => {
+                    store.delRow(tableName, String(id));
+                  });
+                } else {
+                  store.delRow(tableName, String(data));
                 }
               }
             }
@@ -148,10 +196,10 @@ export const tinyBaseExchange = ({
                   const fragmentName = selection.name.value;
                   const fragment = fragments[fragmentName];
                   if (fragment) {
-                    // Process directives on the fragment definition using current data
+                    // Process directives on the fragment definition using current data context
                     processDirectives(fragment.directives, data);
 
-                    if (fragment.selectionSet) {
+                    if (fragment.selectionSet && data) {
                       processData(data, fragment.selectionSet);
                     }
                   }
@@ -164,8 +212,39 @@ export const tinyBaseExchange = ({
           const operationDef = query.definitions.find(
             (d: any) => d.kind === "OperationDefinition"
           ) as OperationDefinitionNode;
-          if (operationDef) {
-            processData(result.data, operationDef.selectionSet);
+
+          if (operationDef && operationDef.selectionSet) {
+            // Process each root field in the operation
+            operationDef.selectionSet.selections.forEach((selection: any) => {
+              if (selection.kind === "Field") {
+                const fieldName = selection.name.value;
+                const responseKey = selection.alias
+                  ? selection.alias.value
+                  : fieldName;
+                const fieldData = result.data[responseKey];
+
+                // Process directives on the root field
+                processDirectives(selection.directives, fieldData);
+
+                // Process the field's selection set
+                if (selection.selectionSet && fieldData) {
+                  processData(fieldData, selection.selectionSet);
+                }
+              } else if (selection.kind === "FragmentSpread") {
+                const fragmentName = selection.name.value;
+                const fragment = fragments[fragmentName];
+                if (fragment) {
+                  processDirectives(fragment.directives, result.data);
+                  if (fragment.selectionSet) {
+                    processData(result.data, fragment.selectionSet);
+                  }
+                }
+              } else if (selection.kind === "InlineFragment") {
+                if (selection.selectionSet) {
+                  processData(result.data, selection.selectionSet);
+                }
+              }
+            });
           }
         })
       );

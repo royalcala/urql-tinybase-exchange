@@ -4,10 +4,11 @@ A [Urql](https://urql.dev/) exchange for integrating with [TinyBase](https://tin
 
 ## Features
 
-- **Automatic Persistence**: Use the `@dbMergeRow` directive to automatically save mutation results to TinyBase.
+- **Automatic Persistence**: Use the `@dbMergeRow` directive to automatically save query and mutation results to TinyBase.
 - **Automatic Deletion**: Use the `@dbDeleteRow` directive to remove rows from TinyBase.
 - **Reactive Queries**: Seamlessly integrates with TinyBase's reactive components (`useCell`, `useRow`, `useQuery`).
 - **Advanced Support**: Fully compatible with TinyBase Indexes, Metrics, and Queries.
+- **Works with Queries and Mutations**: Sync data from both GraphQL queries and mutations.
 
 ## Installation
 
@@ -32,7 +33,58 @@ const client = createClient({
 });
 ```
 
-### 2. Use Directives in Mutations
+### 2. Use Directives in Queries and Mutations
+
+The `table` argument can be either a **string literal** or an **enum value**:
+
+```graphql
+# Define enum in your GraphQL schema (optional but recommended)
+enum Table {
+  Post
+  Comment
+  User
+  Reaction
+}
+
+directive @dbMergeRow(table: Table!) on FIELD | FRAGMENT_DEFINITION
+directive @dbDeleteRow(table: Table!) on FIELD
+
+# Or use string literals
+directive @dbMergeRow(table: String!) on FIELD | FRAGMENT_DEFINITION
+directive @dbDeleteRow(table: String!) on FIELD
+```
+
+**Using with Queries (Enum or String):**
+
+```graphql
+# Using enum (Post will be converted to lowercase "post" for TinyBase table)
+fragment PostFragment on Post @dbMergeRow(table: Post) {
+  id
+  title
+  author @dbMergeRow(table: User) {
+    id
+    name
+  }
+}
+
+# Or using string literal
+fragment PostFragment on Post @dbMergeRow(table: "posts") {
+  id
+  title
+  author @dbMergeRow(table: "users") {
+    id
+    name
+  }
+}
+
+query GetPosts {
+  posts {
+    ...PostFragment
+  }
+}
+```
+
+This will automatically sync all posts and their authors to TinyBase when the query returns.
 
 **Merging Data (@dbMergeRow):**
 
