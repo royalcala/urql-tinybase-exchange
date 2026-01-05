@@ -61,8 +61,44 @@ mutation DeleteUser {
 This will automatically do `store.delRow('users', '1')`.
 
 ### 3. React Integration
+To use TinyBase hooks like `useCell`, `useRow`, or `useQuery`, you must wrap your app with the `Provider` from `tinybase/ui-react` and pass the **same store instance** you used for the exchange.
 
-Since TinyBase is reactive, you can use standard hooks to listen to changes:
+```tsx
+import React from 'react';
+import { createClient, Provider as UrqlProvider, fetchExchange } from 'urql';
+import { createStore } from 'tinybase';
+import { Provider as TinyBaseProvider, useCell } from 'tinybase/ui-react';
+import { tinyBaseExchange } from 'urql-tinybase-exchange';
+
+// 1. Create the store
+const store = createStore();
+
+// 2. Create the client with the exchange using the SAME store
+const client = createClient({
+  url: 'http://localhost:4000/graphql',
+  exchanges: [
+    tinyBaseExchange({ store }),
+    fetchExchange,
+  ],
+});
+
+const UserProfile = ({ id }) => {
+  // 4. Use standard TinyBase hooks
+  const name = useCell('users', id, 'name');
+  return <div>User: {name}</div>;
+};
+
+export const App = () => (
+  // 3. Wrap your app with BOTH providers
+  <TinyBaseProvider store={store}>
+    <UrqlProvider value={client}>
+      <UserProfile id="1" />
+    </UrqlProvider>
+  </TinyBaseProvider>
+);
+```
+
+Since TinyBase is reactive, standard hooks will automatically trigger updates when the exchange modifies the store:
 
 ```tsx
 import { useCell } from 'tinybase/ui-react';

@@ -18,6 +18,14 @@ export const tinyBaseExchange = ({ store }: TinyBaseExchangeConfig): Exchange =>
                 const { operation } = result;
                 const { query } = operation;
 
+                // Collect fragments
+                const fragments: Record<string, any> = {};
+                query.definitions.forEach(d => {
+                    if (d.kind === 'FragmentDefinition') {
+                        fragments[d.name.value] = d;
+                    }
+                });
+
                 // Helper to process @dbMergeRow and @dbDeleteRow
                 const processData = (data: any, selectionSet: any, parentType?: string) => {
                     if (!data || !selectionSet) return;
@@ -46,11 +54,11 @@ export const tinyBaseExchange = ({ store }: TinyBaseExchangeConfig): Exchange =>
                                             if (Array.isArray(fieldData)) {
                                                 fieldData.forEach(row => {
                                                     if (row.id) {
-                                                        store.setRow(tableName, row.id, row);
+                                                        store.setPartialRow(tableName, row.id, { ...row });
                                                     }
                                                 });
                                             } else if (fieldData.id) {
-                                                store.setRow(tableName, fieldData.id, fieldData);
+                                                store.setPartialRow(tableName, fieldData.id, { ...fieldData });
                                             }
                                         }
                                     }
@@ -64,7 +72,6 @@ export const tinyBaseExchange = ({ store }: TinyBaseExchangeConfig): Exchange =>
                                         const tableName = tableArg.value.value;
                                         // The field value should be the ID
                                         if (fieldData) {
-                                            // Assuming fieldData is the ID string/number
                                             store.delRow(tableName, String(fieldData));
                                         }
                                     }
@@ -78,8 +85,13 @@ export const tinyBaseExchange = ({ store }: TinyBaseExchangeConfig): Exchange =>
                                 if (selection.selectionSet) {
                                     processData(data, selection.selectionSet);
                                 }
+                            } else if (selection.kind === 'FragmentSpread') {
+                                const fragmentName = selection.name.value;
+                                const fragment = fragments[fragmentName];
+                                if (fragment && fragment.selectionSet) {
+                                    processData(data, fragment.selectionSet);
+                                }
                             }
-                            // FragmentSpread resolution would require looking up fragments from the document
                         });
                     }
                 };
