@@ -878,4 +878,144 @@ describe("tinyBaseExchange", () => {
       title: "Test Post",
     });
   });
+
+  it("should not store nested object fields on parent rows (TinyBase cells are primitives)", async () => {
+    const mutation = gql`
+      mutation {
+        createPost(id: "p-obj", title: "Post With Objects")
+          @dbMergeRow(table: "posts") {
+          id
+          title
+          comments {
+            id
+            text
+            author {
+              id
+              name
+            }
+          }
+        }
+      }
+    `;
+
+    await client.mutation(mutation).toPromise();
+
+    const post = store.getRow("posts", "p-obj");
+    expect(post).toBeDefined();
+    // TinyBase stores primitive cell values; nested object fields are not retained as-is
+    expect(post).toEqual({ id: "p-obj", title: "Post With Objects" });
+    expect((post as any).comments).toBeUndefined();
+  });
+
+  it("should store nested objects via nested @dbMergeRow directives", async () => {
+    const mutation = gql`
+      fragment UserInfo on User {
+        id
+        name
+      }
+      fragment CommentInfo on Comment {
+        id
+        text
+        author @dbMergeRow(table: "users") {
+          ...UserInfo
+        }
+      }
+      mutation {
+        createPost(id: "p-obj2", title: "Post With Nested Merge")
+          @dbMergeRow(table: "posts") {
+          id
+          title
+          comments @dbMergeRow(table: "comments") {
+            ...CommentInfo
+          }
+        }
+      }
+    `;
+
+    await client.mutation(mutation).toPromise();
+
+    // Parent row is stored (primitive cells only)
+    expect(store.getRow("posts", "p-obj2")).toEqual({
+      id: "p-obj2",
+      title: "Post With Nested Merge",
+    });
+
+    // Nested objects are stored in their own tables via directives
+    const comment = store.getRow("comments", "c100");
+    expect(comment).toMatchObject({ id: "c100", text: "New Comment" });
+    const author = store.getRow("users", "u100");
+    expect(author).toEqual({ id: "u100", name: "Author 100" });
+  });
+
+  it("should handle PostFragment with enum table and nested fragments/objects", async () => {
+    const mutation = gql`
+      fragment UserFragment on User {
+        id
+        name
+      }
+      fragment ReactionFragment on Reaction {
+        id
+        emoji
+        user @dbMergeRow(table: "users") {
+          ...UserFragment
+        }
+      }
+      fragment CommentFragment on Comment {
+        id
+        text
+        author @dbMergeRow(table: "users") {
+          ...UserFragment
+        }
+        reactions @dbMergeRow(table: "reactions") {
+          ...ReactionFragment
+        }
+      }
+      fragment PostFragment on Post @dbMergeRow(table: Post) {
+        __typename
+        id
+        title
+        comments @dbMergeRow(table: "comments") {
+          ...CommentFragment
+          replies @dbMergeRow(table: "comments") {
+            ...CommentFragment
+          }
+        }
+      }
+      mutation {
+        createPost(id: "pFrag1", title: "Post From Fragment") {
+          ...PostFragment
+        }
+      }
+    `;
+
+    await client.mutation(mutation).toPromise();
+
+    // Enum table name 'Post' should map to lowercase 'post'
+    expect(store.getRow("post", "pFrag1")).toMatchObject({
+      id: "pFrag1",
+      title: "Post From Fragment",
+    });
+
+    // Nested objects stored in their own tables via nested directives
+    expect(store.getRow("comments", "c100")).toMatchObject({
+      id: "c100",
+      text: "New Comment",
+    });
+    expect(store.getRow("comments", "c101")).toMatchObject({
+      id: "c101",
+      text: "Nested Reply",
+    });
+    expect(store.getRow("users", "u100")).toEqual({
+      id: "u100",
+      name: "Author 100",
+    });
+    expect(store.getRow("reactions", "r100")).toMatchObject({
+      id: "r100",
+      emoji: "🔥",
+    });
+    expect(store.getRow("users", "u101")).toEqual({
+      id: "u101",
+      name: "Reactor 101",
+    });
+  });
 });

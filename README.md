@@ -86,6 +86,65 @@ query GetPosts {
 
 This will automatically sync all posts and their authors to TinyBase when the query returns.
 
+### Nested Objects and Primitives
+
+TinyBase table cells store primitive values only (string, number, boolean, null). Nested objects and arrays from your GraphQL response are not retained on the parent row. To persist nested structures, apply `@dbMergeRow` on the nested object/array fields so they are normalized into their own tables.
+
+- Enum table names are converted to lowercase: `Post` → `post`. If you prefer pluralized or custom names, use string literals like `"posts"`.
+- Deletion uses field-level directives on the ID(s): apply `@dbDeleteRow` directly to the field that returns the ID or array of IDs.
+- Client-only directives are stripped before sending to the backend, so servers won’t see `@dbMergeRow`/`@dbDeleteRow`.
+
+Example with nested fragments and arrays:
+
+```graphql
+fragment UserFragment on User {
+  id
+  name
+}
+fragment ReactionFragment on Reaction {
+  id
+  emoji
+  user @dbMergeRow(table: "users") {
+    ...UserFragment
+  }
+}
+fragment CommentFragment on Comment {
+  id
+  text
+  author @dbMergeRow(table: "users") {
+    ...UserFragment
+  }
+  reactions @dbMergeRow(table: "reactions") {
+    ...ReactionFragment
+  }
+}
+
+# Using an enum for the parent table; will map to lowercase "post"
+fragment PostFragment on Post @dbMergeRow(table: Post) {
+  id
+  title
+  comments @dbMergeRow(table: "comments") {
+    ...CommentFragment
+    # Nested array of replies, also merged into the "comments" table
+    replies @dbMergeRow(table: "comments") {
+      ...CommentFragment
+    }
+  }
+}
+
+mutation CreatePostWithNested {
+  createPost(id: "p1", title: "Nested") {
+    ...PostFragment
+  }
+}
+```
+
+In this example:
+
+- The post is stored in the `post` table (lowercased from enum). Primitive fields like `id`, `title`, and potentially `__typename` are stored on the row.
+- `comments`, `replies`, `author`, and `reactions` are stored in their own tables via nested `@dbMergeRow` directives.
+- If you need to keep a JSON blob in a single cell, serialize it (e.g., `contentJson` as a string), understanding you won’t be able to index/query inside that blob via TinyBase.
+
 **Merging Data (@dbMergeRow):**
 
 ```graphql
@@ -110,6 +169,16 @@ mutation DeleteUser {
 ```
 
 This will automatically do `store.delRow('users', '1')`. The directive is applied to the `id` field which contains the row ID to delete.
+
+You can also delete multiple rows by applying the directive to an array field of IDs:
+
+```graphql
+mutation DeleteUsers {
+  deleteUsers(ids: ["1", "2"]) {
+    ids @dbDeleteRow(table: "users")
+  }
+}
+```
 
 ### 3. React Integration
 
